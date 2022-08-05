@@ -52,8 +52,11 @@ async function benchmark() {
 
   // TODO should work out a more scientific sleep duration
   log.info('Sleeping to allow central-backend to complete background jobs...');
-  await new Promise(resolve => setTimeout(resolve, 10_000));
+  await new Promise(resolve => setTimeout(resolve, 20_000));
   log.info('Woke up.');
+
+//  const projectId = 545;
+//  const formId = '250_questions';
 
   await doBenchmark('exportZipWithDataAndMedia()', 10, 5_000, 30_000, () => exportZipWithDataAndMedia(projectId, formId));
 
@@ -85,7 +88,8 @@ function doBenchmark(name, throughput, throughputPeriod, testDuration, fn) {
       setTimeout(async () => {
         clearTimeout(timerId);
 
-        await new Promise(resolve => setTimeout(resolve, 10000)); // TODO should be same length as HTTP timeout
+        log.info('Waiting for test drainage...');
+        await new Promise(resolve => setTimeout(resolve, 60000)); // TODO should be same length as HTTP timeout?
 
         log.report('--------------------------');
         log.report('          Test:', name);
