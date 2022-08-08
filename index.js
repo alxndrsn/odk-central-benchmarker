@@ -126,7 +126,17 @@ function doBenchmark(name, throughput, throughputPeriod, testDuration, fn) {
         log.report('           min:', _. min(sizes), 'b');
         log.report('           max:', _. max(sizes), 'b');
         log.report('         Fails:');
+        [ ...new Set(fails.map(e => e.message)) ].map(m => log.report(`              * ${m.replace(/\n/g, '\\n')}`));
         log.report('--------------------------');
+
+        if(fails.length) {
+          log.report('!!!');
+          log.report('!!!');
+          log.report('!!! REQUEST FAILURES MAY AFFECT SUBSEQUENT BENCHMARKS!');
+          log.report('!!!');
+          log.report('!!!');
+          log.report('--------------------------');
+        }
 
         if(_.min(sizes) !== _.max(sizes)) {
           log.report('!!!');
