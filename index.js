@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import fetch, { fileFromSync } from 'node-fetch';
 import _ from 'lodash';
 import { v4 as uuid } from 'uuid';
@@ -6,7 +7,7 @@ import { program } from 'commander';
 
 const _log = (...args) => console.log('[benchmarker]', new Date().toTimeString().substring(0, 8), ...args);
 const log  = (...args) => true  && _log('INFO',   ...args);
-log.debug  = (...args) => false && _log('DEBUG',  ...args);
+log.debug  = (...args) => true  && _log('DEBUG',  ...args);
 log.info   = log;
 log.error  = (...args) => true  && _log('ERROR',  ...args);
 log.report = (...args) => true  && _log('REPORT', ...args);
@@ -32,10 +33,15 @@ const { serverUrl, userEmail, userPassword, formPath, throughput, throughputPeri
 log(`Using form: ${formPath}`);
 log(`Connecting to ${serverUrl} with user ${userEmail}...`);
 
+const logPath = `./logs/${new Date().toISOString()}`;
+
 benchmark();
 
 async function benchmark() {
   log.info('Setting up...');
+
+  log.info('Creating log directory:', logPath, '...');
+  fs.mkdirSync(logPath);
 
   log.info('Creating project...');
   const { id:projectId } = await apiPostJson('projects', { name:`benchmark-${new Date().toISOString().replace(/\..*/, '')}` });
@@ -48,39 +54,45 @@ async function benchmark() {
 
   log.info('Setup complete.  Starting benchmarks...');
 
-  await doBenchmark('randomSubmission()', throughput, throughputPeriod, testDuration, () => randomSubmission(projectId, formId));
+  await doBenchmark('randomSubmission()', throughput, throughputPeriod, testDuration, n => randomSubmission(n, projectId, formId));
 
   // TODO should work out a more scientific sleep duration
-  log.info('Sleeping to allow central-backend to complete background jobs...');
-  await new Promise(resolve => setTimeout(resolve, 20_000));
+  const backgroundJobPause = 20_000;
+  log.info(`Sleeping ${durationForHumans(backgroundJobPause)} to allow central-backend to complete background jobs...`);
+  await new Promise(resolve => setTimeout(resolve, backgroundJobPause));
   log.info('Woke up.');
 
 //  const projectId = 545;
 //  const formId = '250_questions';
 
-  await doBenchmark('exportZipWithDataAndMedia()', 10, 3_000, 60_000, () => exportZipWithDataAndMedia(projectId, formId));
+  await doBenchmark('exportZipWithDataAndMedia()', 10, 3_000, 60_000, n => exportZipWithDataAndMedia(n, projectId, formId));
+
+  log.info(`Check for extra logs at ${logPath}`);
 
   log.info('Complete.');
 }
 
 function doBenchmark(name, throughput, throughputPeriod, testDuration, fn) {
-  log.info('Starting benchmark:', name, '...');
+  log.info('Starting benchmark:', name);
+  log.info('        throughput:', throughput);
+  log.info('  throughputPeriod:', throughputPeriod);
+  log.info('      testDuration:', durationForHumans(testDuration));
+  log.info('-------------------------------');
   return new Promise((resolve, reject) => {
     try {
       const successes = [];
       const sizes = [];
       const fails = [];
       const sleepyTime = +throughputPeriod / +throughput;
-      let requestsStarted = 0;
 
+      let iterationNumber = 0;
       const iterate = async () => {
         try {
-          ++requestsStarted;
           const start = Date.now();
-          const res = await fn();
+          const resSize = await fn(++iterationNumber);
           const time = Date.now() - start;
           successes.push(time);
-          sizes.push(res?.toString()?.length);
+          sizes.push(resSize);
         } catch(err) {
           fails.push(err);
         }
@@ -92,22 +104,25 @@ function doBenchmark(name, throughput, throughputPeriod, testDuration, fn) {
       setTimeout(async () => {
         clearTimeout(timerId);
 
+        const maxDrainDuration = 60_000;
         await new Promise(resolve => {
-          log.info('Waiting for test drainage...');
-          const maxDrainTimeout = Date.now() + 60_000;
+          log.info(`Waiting up to ${durationForHumans(maxDrainDuration)} for test drainage...`);
+          const maxDrainTimeout = Date.now() + maxDrainDuration;
           const drainPulse = 500;
 
           checkDrain();
 
           function checkDrain() {
+            log.debug('Checking drain status...');
             if(Date.now() > maxDrainTimeout) {
               log.info('Drain timeout exceeded.');
               return resolve();
-            } else if(successes.length + fails.length >= requestsStarted) {
+            } else if(successes.length + fails.length >= iterationNumber) {
               log.info('All connections have completed.');
               return resolve();
             }
-            setTimeout(checkDrain, 500);
+            log.debug(`Drainage not complete.  Sleeping for ${drainPulse}...`);
+            setTimeout(checkDrain, drainPulse);
           }
         });
 
@@ -116,7 +131,6 @@ function doBenchmark(name, throughput, throughputPeriod, testDuration, fn) {
         log.report(' Test duration:', testDuration);
         log.report('Total requests:', successes.length + fails.length);
         log.report('     Successes:', successes.length);
-        log.report('      Failures:', fails.length);
         log.report('Response times:');
         log.report('          mean:', _.mean(successes), 'ms');
         log.report('           min:', _. min(successes), 'ms');
@@ -125,7 +139,7 @@ function doBenchmark(name, throughput, throughputPeriod, testDuration, fn) {
         log.report('          mean:', _.mean(sizes), 'b');
         log.report('           min:', _. min(sizes), 'b');
         log.report('           max:', _. max(sizes), 'b');
-        log.report('         Fails:');
+        log.report('      Failures:', fails.length);
         [ ...new Set(fails.map(e => e.message)) ].map(m => log.report(`              * ${m.replace(/\n/g, '\\n')}`));
         log.report('--------------------------');
 
@@ -175,9 +189,34 @@ function apiPostJson(path, body) {
   return apiPost(path, JSON.stringify(body), { 'Content-Type':'application/json' });
 }
 
-async function apiGet(path, headers) {
-  const res = await apiFetch('GET', path, undefined, headers);
-  return res.text();
+function apiGetAndDump(prefix, n, path, headers) {
+  return fetchToFile(prefix, n, 'GET', path, undefined, headers);
+}
+
+function apiPostAndDump(prefix, n, path, body, headers) {
+  return fetchToFile(prefix, n, 'POST', path, body, headers);
+}
+
+async function fetchToFile(filenamePrefix, iterationNumber, method, path, body, headers) {
+  const res = await apiFetch(method, path, body, headers);
+
+  return new Promise((resolve, reject) => {
+    try {
+      let bytes = 0;
+      res.body.on('data', data => bytes += data.length);
+      res.body.on('error', reject);
+
+      const file = fs.createWriteStream(`${logPath}/${filenamePrefix}.${iterationNumber.toString().padStart(9, '0')}.dump`);
+      res.body.on('end', () => file.close(() => resolve(bytes)));
+
+      file.on('error', reject);
+
+      res.body.pipe(file);
+    } catch(err) {
+      console.log(err);
+      process.exit(99);
+    }
+  });
 }
 
 async function apiPost(path, body, headers) {
@@ -223,7 +262,7 @@ function fileExtensionFrom(f) {
   }
 }
 
-function randomSubmission(projectId, formId) {
+function randomSubmission(n, projectId, formId) {
   const headers = {
     'Content-Type': 'multipart/form-data; boundary=foo',
     'X-OpenRosa-Version': '1.0',
@@ -244,7 +283,7 @@ Content-Type: application/xml\r
 \r
 --foo--`;
 
-  return apiPost(`projects/${projectId}/forms/${formId}/submissions`, body, headers);
+  return apiPostAndDump('randomSubmission', n, `projects/${projectId}/forms/${formId}/submissions`, body, headers);
 }
 
 function r() {
@@ -255,6 +294,11 @@ function nPromises(n, fn) {
   return Promise.all(Array.from(Array(+n)).map(fn));
 }
 
-function exportZipWithDataAndMedia(projectId, formId) {
-  return apiGet(`projects/${projectId}/forms/${formId}/submissions.csv.zip?splitSelectMultiples=true&groupPaths=true&deletedFields=true`);
+function exportZipWithDataAndMedia(n, projectId, formId) {
+  return apiGetAndDump('exportZipWithDataAndMedia', n, `projects/${projectId}/forms/${formId}/submissions.csv.zip?splitSelectMultiples=true&groupPaths=true&deletedFields=true`);
+}
+
+function durationForHumans(ms) {
+  if(ms > 1000) return Math.floor(ms / 1000) + 's';
+  return ms + 'ms';
 }
