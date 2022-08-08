@@ -58,7 +58,7 @@ async function benchmark() {
 //  const projectId = 545;
 //  const formId = '250_questions';
 
-  await doBenchmark('exportZipWithDataAndMedia()', 10, 5_000, 30_000, () => exportZipWithDataAndMedia(projectId, formId));
+  await doBenchmark('exportZipWithDataAndMedia()', 10, 3_000, 60_000, () => exportZipWithDataAndMedia(projectId, formId));
 
   log.info('Complete.');
 }
