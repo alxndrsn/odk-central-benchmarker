@@ -70,9 +70,11 @@ function doBenchmark(name, throughput, throughputPeriod, testDuration, fn) {
       const successes = [];
       const fails = [];
       const sleepyTime = +throughputPeriod / +throughput;
+      let requestsStarted = 0;
 
       const iterate = async () => {
         try {
+          ++requestsStarted;
           const start = Date.now();
           await fn();
           const time = Date.now() - start;
@@ -88,8 +90,24 @@ function doBenchmark(name, throughput, throughputPeriod, testDuration, fn) {
       setTimeout(async () => {
         clearTimeout(timerId);
 
-        log.info('Waiting for test drainage...');
-        await new Promise(resolve => setTimeout(resolve, 60000)); // TODO should be same length as HTTP timeout?
+        await new Promise(resolve => {
+          log.info('Waiting for test drainage...');
+          const maxDrainTimeout = Date.now() + 60_000;
+          const drainPulse = 500;
+
+          checkDrain();
+
+          function checkDrain() {
+            if(Date.now() > maxDrainTimeout) {
+              log.info('Drain timeout exceeded.');
+              return resolve();
+            } else if(successes.length + fails.length >= requestsStarted) {
+              log.info('All connections have completed.');
+              return resolve();
+            }
+            setTimeout(checkDrain, 500);
+          }
+        });
 
         log.report('--------------------------');
         log.report('          Test:', name);
