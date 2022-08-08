@@ -68,6 +68,7 @@ function doBenchmark(name, throughput, throughputPeriod, testDuration, fn) {
   return new Promise((resolve, reject) => {
     try {
       const successes = [];
+      const sizes = [];
       const fails = [];
       const sleepyTime = +throughputPeriod / +throughput;
       let requestsStarted = 0;
@@ -76,9 +77,10 @@ function doBenchmark(name, throughput, throughputPeriod, testDuration, fn) {
         try {
           ++requestsStarted;
           const start = Date.now();
-          await fn();
+          const res = await fn();
           const time = Date.now() - start;
           successes.push(time);
+          sizes.push(res?.toString()?.length);
         } catch(err) {
           fails.push(err);
         }
@@ -119,7 +121,21 @@ function doBenchmark(name, throughput, throughputPeriod, testDuration, fn) {
         log.report('          mean:', _.mean(successes), 'ms');
         log.report('           min:', _. min(successes), 'ms');
         log.report('           max:', _. max(successes), 'ms');
+        log.report('Response sizes:');
+        log.report('          mean:', _.mean(sizes), 'b');
+        log.report('           min:', _. min(sizes), 'b');
+        log.report('           max:', _. max(sizes), 'b');
+        log.report('         Fails:');
         log.report('--------------------------');
+
+        if(_.min(sizes) !== _.max(sizes)) {
+          log.report('!!!');
+          log.report('!!!');
+          log.report('!!! VARIATION IN RESPONSE SIZES MAY INDICATE SERIOUS ERRORS SERVER-SIDE!');
+          log.report('!!!');
+          log.report('!!!');
+          log.report('--------------------------');
+        }
 
         resolve();
       }, +testDuration);
