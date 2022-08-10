@@ -108,7 +108,7 @@ function doBenchmark(name, throughput, throughputPeriod, testDuration, fn) {
       setTimeout(async () => {
         clearTimeout(timerId);
 
-        const maxDrainDuration = 60_000;
+        const maxDrainDuration = 120_000;
         await new Promise(resolve => {
           log.info(`Waiting up to ${durationForHumans(maxDrainDuration)} for test drainage...`);
           const maxDrainTimeout = Date.now() + maxDrainDuration;
