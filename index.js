@@ -83,18 +83,22 @@ function doBenchmark(name, throughput, throughputPeriod, testDuration, fn) {
       const successes = [];
       const sizes = [];
       const fails = [];
+      const results = [];
       const sleepyTime = +throughputPeriod / +throughput;
 
-      let iterationNumber = 0;
+      let iterationCount = 0;
       const iterate = async () => {
+        const n = ++iterationCount;
         try {
           const start = Date.now();
-          const resSize = await fn(++iterationNumber);
+          const resSize = await fn(n);
           const time = Date.now() - start;
           successes.push(time);
           sizes.push(resSize);
+          results[n] = 'ok';
         } catch(err) {
-          fails.push(err);
+          fails.push({ n, err });
+          results[n] = 'fail';
         }
       };
 
@@ -117,11 +121,11 @@ function doBenchmark(name, throughput, throughputPeriod, testDuration, fn) {
             if(Date.now() > maxDrainTimeout) {
               log.info('Drain timeout exceeded.');
               return resolve();
-            } else if(successes.length + fails.length >= iterationNumber) {
+            } else if(results.length >= iterationCount) {
               log.info('All connections have completed.');
               return resolve();
             }
-            log.debug(`Drainage not complete.  Sleeping for ${drainPulse}...`);
+            log.debug(`Drainage not complete.  Still Waiting for ${iterationCount - results.length} connections.  Sleeping for ${durationForHumans(drainPulse)}...`);
             setTimeout(checkDrain, drainPulse);
           }
         });
@@ -129,18 +133,18 @@ function doBenchmark(name, throughput, throughputPeriod, testDuration, fn) {
         log.report('--------------------------');
         log.report('          Test:', name);
         log.report(' Test duration:', testDuration);
-        log.report('Total requests:', successes.length + fails.length);
+        log.report('Total requests:', iterationCount);
         log.report('     Successes:', successes.length);
+        log.report('      Failures:', fails.length);
         log.report('Response times:');
         log.report('          mean:', _.mean(successes), 'ms');
         log.report('           min:', _. min(successes), 'ms');
         log.report('           max:', _. max(successes), 'ms');
         log.report('Response sizes:');
-        log.report('          mean:', _.mean(sizes), 'b');
         log.report('           min:', _. min(sizes), 'b');
         log.report('           max:', _. max(sizes), 'b');
-        log.report('      Failures:', fails.length);
-        [ ...new Set(fails.map(e => e.message)) ].map(m => log.report(`              * ${m.replace(/\n/g, '\\n')}`));
+        if(fails.length) log.report('        Errors:');
+        [ ...new Set(fails.map(f => f.err.message)) ].map(m => log.report(`              * ${m.replace(/\n/g, '\\n')}`));
         log.report('--------------------------');
 
         if(fails.length) {
@@ -160,6 +164,13 @@ function doBenchmark(name, throughput, throughputPeriod, testDuration, fn) {
           log.report('!!!');
           log.report('--------------------------');
         }
+
+        fs.writeFileSync(`${logPath}/${name}.extras.log.json`, JSON.stringify({
+          results,
+          fails,
+        }, null, 2));
+
+        if(_.min(sizes) !== _.max(sizes)) process.exit(69);
 
         resolve();
       }, +testDuration);
@@ -197,7 +208,7 @@ function apiPostAndDump(prefix, n, path, body, headers) {
   return fetchToFile(prefix, n, 'POST', path, body, headers);
 }
 
-async function fetchToFile(filenamePrefix, iterationNumber, method, path, body, headers) {
+async function fetchToFile(filenamePrefix, n, method, path, body, headers) {
   const res = await apiFetch(method, path, body, headers);
 
   return new Promise((resolve, reject) => {
@@ -206,7 +217,7 @@ async function fetchToFile(filenamePrefix, iterationNumber, method, path, body, 
       res.body.on('data', data => bytes += data.length);
       res.body.on('error', reject);
 
-      const file = fs.createWriteStream(`${logPath}/${filenamePrefix}.${iterationNumber.toString().padStart(9, '0')}.dump`);
+      const file = fs.createWriteStream(`${logPath}/${filenamePrefix}.${n.toString().padStart(9, '0')}.dump`);
       res.body.on('end', () => file.close(() => resolve(bytes)));
 
       file.on('error', reject);
