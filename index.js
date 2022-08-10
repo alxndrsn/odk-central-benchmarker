@@ -54,7 +54,7 @@ async function benchmark() {
 
   log.info('Setup complete.  Starting benchmarks...');
 
-  await doBenchmark('randomSubmission()', throughput, throughputPeriod, testDuration, n => randomSubmission(n, projectId, formId));
+  await doBenchmark('randomSubmission', throughput, throughputPeriod, testDuration, n => randomSubmission(n, projectId, formId));
 
   // TODO should work out a more scientific sleep duration
   const backgroundJobPause = 20_000;
@@ -65,7 +65,7 @@ async function benchmark() {
 //  const projectId = 545;
 //  const formId = '250_questions';
 
-  await doBenchmark('exportZipWithDataAndMedia()', 10, 3_000, 60_000, n => exportZipWithDataAndMedia(n, projectId, formId));
+  await doBenchmark('exportZipWithDataAndMedia', 10, 3_000, 60_000, n => exportZipWithDataAndMedia(n, projectId, formId));
 
   log.info(`Check for extra logs at ${logPath}`);
 
