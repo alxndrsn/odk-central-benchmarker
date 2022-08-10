@@ -88,7 +88,7 @@ function doBenchmark(name, throughput, throughputPeriod, testDuration, fn) {
 
       let iterationCount = 0;
       const iterate = async () => {
-        const n = ++iterationCount;
+        const n = iterationCount++;
         try {
           const start = Date.now();
           const resSize = await fn(n);
