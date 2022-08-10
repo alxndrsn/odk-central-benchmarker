@@ -7,7 +7,7 @@ import { program } from 'commander';
 
 const _log = (...args) => console.log('[benchmarker]', new Date().toTimeString().substring(0, 8), ...args);
 const log  = (...args) => true  && _log('INFO',   ...args);
-log.debug  = (...args) => true  && _log('DEBUG',  ...args);
+log.debug  = (...args) => false && _log('DEBUG',  ...args);
 log.info   = log;
 log.error  = (...args) => true  && _log('ERROR',  ...args);
 log.report = (...args) => true  && _log('REPORT', ...args);
